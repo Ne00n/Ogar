@@ -1,11 +1,10 @@
 // Imports
 var Commands = require('./modules/CommandList');
 var GameServer = require('./GameServer');
-
+var AsyncConsole = require('asyncconsole');
 // Init variables
 var showConsole = true;
-
-// Start msg
+// Start message
 console.log("[Game] Ogar - An open source Agar.io server implementation");
 
 // Handle arguments
@@ -20,29 +19,42 @@ process.argv.forEach(function(val) {
     }
 });
 
-// Run Ogar
-var gameServer = new GameServer();
-gameServer.start();
-// Add command handler
-gameServer.commands = Commands.list;
+var gameServer;
+startServer();
+
+function startServer() {
+    gameServer = new GameServer();
+    gameServer.start();
+
+    // Add handles
+    gameServer.shutdownHandle = function() {
+        process.exit(0);
+    };
+    gameServer.restartHandle = function(timeout) {
+        gameServer.restartScheduled = new Date();
+        gameServer.restartAt = new Date(Date.now() + timeout);
+        gameServer.restartId = setTimeout(function() {
+                                   gameServer.socketServer.close();
+                                   gameServer.httpServer.close();
+                                   gameServer = null;
+                                   if (global.gc) global.gc(); // Force garbage collection
+                                   process.stdout.write("\u001b[2J\u001b[0;0H"); // Clear the console
+                                   startServer();
+                               }, timeout);
+    };
+}
+
 // Initialize the server console
 if (showConsole) {
-    var readline = require('readline');
-    var in_ = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-    });
-    setTimeout(prompt, 100);
+    setTimeout(function() {
+    var input = new AsyncConsole('> ',function(command) {
+        parseCommands(command);
+    })
+    },200)
 }
 
 // Console functions
 
-function prompt() {
-    in_.question(">", function(str) {
-        parseCommands(str);
-        return prompt(); // Too lazy to learn async
-    });
-}
 
 function parseCommands(str) {
     // Log the string
@@ -58,11 +70,5 @@ function parseCommands(str) {
     // Process the first string value
     var first = split[0].toLowerCase();
 
-    // Get command function
-    var execute = gameServer.commands[first];
-    if (typeof execute != 'undefined') {
-        execute(gameServer, split);
-    } else {
-        console.log("[Console] Invalid Command!");
-    }
+    gameServer.pluginHandler.executeCommand(first, split);
 }
